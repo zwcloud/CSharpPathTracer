@@ -118,17 +118,6 @@ namespace CSharpPathTracer
             return Vector3.Dot(v, u) / v.LengthSquared() * v;
         }
 
-        /// <summary>
-        /// Get the first intersection of a ray and a sphere.
-        /// </summary>
-        /// <param name="C">center of the sphere</param>
-        /// <param name="r">radius of the sphere</param>
-        /// <param name="P">origin of the ray</param>
-        /// <param name="d">direction vector of the ray</param>
-        /// <param name="k"></param>
-        /// <param name="I">first intersection point</param>
-        /// <param name="n">sphere surface normal at the point</param>
-        /// <returns>whether the ray and sphere are intersected</returns>
         private static bool Intersect(Vector3 C, float r, Vector3 P, Vector3 d, out float k, out Vector3 I, out Vector3 n)
         {
             var PC = C - P;
@@ -160,9 +149,8 @@ namespace CSharpPathTracer
             return true;
         }
 
-        private static Random Random = new Random();
-
-        private static Vector3 RandomUnitVectorOnUnitSphere()
+        public static Random Random = new Random();
+        public static Vector3 RandomUnitVectorOnUnitSphere()
         {
             //ref: http://mathworld.wolfram.com/SpherePointPicking.html
             var x0 = Random.NextDouble()*2 - 1;
@@ -176,7 +164,7 @@ namespace CSharpPathTracer
             return new Vector3(pX, pY, pZ);
         }
 
-        private static Vector3 RandomUnitVectorOnNorthernHemisphere()
+        public static Vector3 RandomUnitVectorOnNorthernHemisphere()
         {
             var p = RandomUnitVectorOnUnitSphere();
             Debug.Assert(Math.Abs(p.LengthSquared()-1) <= 0.001);
@@ -186,28 +174,27 @@ namespace CSharpPathTracer
             return p;
         }
 
-        private static float AngleBetween(Vector3 a, Vector3 b)
+        public static float AngleBetween(Vector3 a, Vector3 b)
         {
             return (float)Math.Acos(Vector3.Dot(a, b) / (a.Length() * b.Length()));
         }
 
-        private static Vector3 RotateUnitVector(Vector3 p, Vector3 a, Vector3 b)
+        public static Vector3 RotateUnitVector(Vector3 p, Vector3 a, Vector3 b)
         {
             a = Vector3.Normalize(a);
             b = Vector3.Normalize(b);
-            var axis = Vector3.Normalize(Vector3.Cross(b, a));
+            var axis = Vector3.Normalize(Vector3.Cross(a, b));
             var angle = AngleBetween(a, b);
             var quaternion = Quaternion.CreateFromAxisAngle(axis, angle);
             return Vector3.Transform(p, quaternion);
         }
 
-        private static Vector3 RandomUnitVectorInHemisphereOf(Vector3 dir)
+        public static Vector3 RandomUnitVectorInHemisphereOf(Vector3 dir)
         {
             var p = RandomUnitVectorOnNorthernHemisphere();
             //now p is distributed around the north unit vector: Vector3.UnitY
-            p = RotateUnitVector(p, Vector3.Normalize(dir), Vector3.UnitY);//rotate the vector to make it surround dir
+            p = RotateUnitVector(p, Vector3.UnitY, Vector3.Normalize(dir));//rotate the vector to make it surround dir
             //now p is distributed around dir
-            Debug.Assert(Math.Abs(p.LengthSquared() - 1) < 0.001);
             return p;
         }
 
@@ -309,7 +296,10 @@ namespace CSharpPathTracer
             const int w = 400, h = 300;
             var finalImage = new Color[w * h];
             var numSamples = 10;
+
+            var watch = Stopwatch.StartNew();
             Render(finalImage, w, h, numSamples);
+            var timeUsed = watch.Elapsed.TotalSeconds;
 
             //save image
             var bytes = new byte[w * h * 3];
@@ -324,7 +314,7 @@ namespace CSharpPathTracer
                 bytes[3*i+2] = b;
             }
             using (var image = Image.LoadPixelData<Rgb24>(bytes, w, h))
-            using (var stream = new FileStream("D:\\1.png", FileMode.OpenOrCreate))
+            using (var stream = new FileStream($"D:\\{numSamples}_{timeUsed:F2}.png", FileMode.OpenOrCreate))
             {
                 image[0,0] = new Rgb24(255, 0, 0);
                 image[image.Width-1,image.Height-1] = new Rgb24(0, 255, 0);
