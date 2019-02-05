@@ -2,6 +2,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Numerics;
+using System.Threading;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 
@@ -149,14 +150,37 @@ namespace CSharpPathTracer
             return true;
         }
 
-        public static Random Random = new Random();
+        //ref: https://codeblog.jonskeet.uk/2009/11/04/revisiting-randomness/
+        public static class ThreadLocalRandom
+        {
+            private static readonly Random globalRandom = new Random();
+            private static readonly object globalLock = new object();
+
+            private static readonly ThreadLocal<Random> threadRandom = new ThreadLocal<Random>(NewRandom);
+
+            public static Random NewRandom()
+            {
+                lock (globalLock)
+                {
+                    return new Random(globalRandom.Next());
+                }
+            }
+
+            public static Random Instance { get { return threadRandom.Value; } }
+
+            public static int Next()
+            {
+                return Instance.Next();
+            }
+        }
+
         public static Vector3 RandomUnitVectorOnUnitSphere()
         {
             //ref: http://mathworld.wolfram.com/SpherePointPicking.html
-            var x0 = Random.NextDouble()*2 - 1;
-            var x1 = Random.NextDouble()*2 - 1;
-            var x2 = Random.NextDouble()*2 - 1;
-            var x3 = Random.NextDouble()*2 - 1;
+            var x0 = ThreadLocalRandom.Instance.NextDouble()*2 - 1;
+            var x1 = ThreadLocalRandom.Instance.NextDouble()*2 - 1;
+            var x2 = ThreadLocalRandom.Instance.NextDouble()*2 - 1;
+            var x3 = ThreadLocalRandom.Instance.NextDouble()*2 - 1;
             var divider = x0 * x0 + x1 * x1 + x2 * x2 + x3 * x3;
             var pX = (float)(2 * (x1 * x3 + x0 * x2) / divider);
             var pY = (float)(2 * (x2 * x3 - x0 * x1) / divider);
@@ -274,21 +298,39 @@ namespace CSharpPathTracer
         private static void Render(Color[] image, int width, int height, int numSamples)
         {
             const float fov = MathF.PI / 3;
-            for (var y = 0; y < height; y++)
+
+            System.Threading.Tasks.Parallel.For(0, width*height, index =>
             {
-                for (int x = 0; x < width; x++)
+                var x = index % width;
+                var y = index / width;
+                Debug.Assert(index == y * width + x);
+
+                var pixel = image[index];
+                Ray r = Camera.generateRay(x, y, width, height, fov);
+                for (var i = 0; i < numSamples; i++)
                 {
-                    var index = y * width + x;
-                    var pixel = image[index];
-                    Ray r = Camera.generateRay(x, y, width, height, fov);
-                    for (var i = 0; i < numSamples; i++)
-                    {
-                        pixel += TracePath(r, 0);
-                    }
-                    pixel /= numSamples;
-                    image[index] = pixel;
+                    pixel += TracePath(r, 0);
                 }
+                pixel /= numSamples;
+                image[index] = pixel;
+            });
+#if false
+            for (var index = 0; index < width* height; index++)
+            {
+                var x = index % width;
+                var y = index / width;
+                Debug.Assert(index == y * width + x);
+
+                var pixel = image[index];
+                Ray r = Camera.generateRay(x, y, width, height, fov);
+                for (var i = 0; i < numSamples; i++)
+                {
+                    pixel += TracePath(r, 0);
+                }
+                pixel /= numSamples;
+                image[index] = pixel;
             }
+#endif
         }
 
         public static void Main(string[] args)
@@ -314,7 +356,7 @@ namespace CSharpPathTracer
                 bytes[3*i+2] = b;
             }
             using (var image = Image.LoadPixelData<Rgb24>(bytes, w, h))
-            using (var stream = new FileStream($"D:\\{numSamples}_{timeUsed:F2}.png", FileMode.OpenOrCreate))
+            using (var stream = new FileStream($"{Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)}/{numSamples}_{timeUsed:F2}.png", FileMode.OpenOrCreate))
             {
                 image[0,0] = new Rgb24(255, 0, 0);
                 image[image.Width-1,image.Height-1] = new Rgb24(0, 255, 0);
