@@ -105,11 +105,17 @@ namespace CSharpPathTracer
             }
         }
 
+        enum MaterialType
+        {
+            Diffuse,
+            Mirror,
+        }
+
         private class Material
         {
             public Color Emittance { get; set; }
             public Color Reflectance { get; set; }
-
+            public MaterialType Type { get; set; }
         }
 
         private static Vector3 Project(Vector3 from, Vector3 onto)
@@ -224,14 +230,21 @@ namespace CSharpPathTracer
 
         private static readonly Sphere[] Spheres =
         {
-            new Sphere("Sphere0", 500, new Vector3(7,327,-875), new Material{Emittance = Color.black, Reflectance = new Color(0.75f,0.25f,0.25f)}),//Wall0
-            new Sphere("Sphere1", 500, new Vector3(-769,55,-94),  new Material{Emittance = Color.black, Reflectance = new Color(0.25f,0.25f,0.75f)}),//Wall1
-            new Sphere("Sphere2", 500, new Vector3(720,16, -58),  new Material{Emittance = Color.black, Reflectance = new Color(0.75f,0.75f,0.75f)}),//Wall2
-            new Sphere("Ball",  50,  new Vector3(15,16.5f,-91), new Material{Emittance = Color.black, Reflectance = new Color(0.25f,0.25f,0.75f)}),//Ball
-            new Sphere("Light", 50,  new Vector3(-148,52,-60),  new Material{Emittance = new Color(12,12,12), Reflectance = Color.black})       //Light
+            new Sphere("Sphere0", 500, new Vector3(7,327,-875), new Material{Emittance = Color.black, Reflectance = new Color(0.75f,0.25f,0.25f), Type = MaterialType.Diffuse}),
+            new Sphere("Sphere1", 500, new Vector3(-769,55,-94),  new Material{Emittance = Color.black, Reflectance = new Color(0.25f,0.25f,0.75f), Type = MaterialType.Diffuse}),
+            new Sphere("Sphere2", 500, new Vector3(720,16, -58),  new Material{Emittance = Color.black, Reflectance = new Color(0.75f,0.75f,0.75f), Type = MaterialType.Diffuse}),
+            new Sphere("MirrorBall",  50,  new Vector3(15,16.5f,-91), new Material{Emittance = Color.black, Reflectance = new Color(1,1,1), Type = MaterialType.Mirror}),
+            new Sphere("LightBall", 50,  new Vector3(-148,52,-60),  new Material{Emittance = new Color(12,12,12), Reflectance = Color.black, Type = MaterialType.Diffuse}),
+
+            new Sphere("Front", 5000, new Vector3(368,16.5f,-5403), new Material{Emittance = Color.black, Reflectance = new Color(0.75f,0.75f,0.75f), Type = MaterialType.Diffuse}),
+            new Sphere("Back", 5000, new Vector3(15,16.5f,5073), new Material{Emittance = Color.black, Reflectance = Color.black, Type = MaterialType.Diffuse}),
+            new Sphere("Top", 5000, new Vector3(15,5326,91), new Material{Emittance = Color.black, Reflectance = new Color(0.75f,0.75f,0.75f), Type = MaterialType.Diffuse}),
+            new Sphere("Bottom", 5000, new Vector3(15,-5261,91), new Material{Emittance = Color.black, Reflectance = new Color(0.75f,0.75f,0.75f), Type = MaterialType.Diffuse}),
+            new Sphere("Left", 5000, new Vector3(-4789,16.5f,-2859), new Material{Emittance = Color.black, Reflectance = new Color(0.75f,0.25f,0.25f), Type = MaterialType.Diffuse}),
+            new Sphere("Right", 5000, new Vector3(5487,16.5f,-1256), new Material{Emittance = Color.black, Reflectance = new Color(0.25f,0.25f,0.75f), Type = MaterialType.Diffuse}),
         };
 
-        private const int MaxDepth = 10;
+        private const int MaxDepth = 5;
         private static Color TracePath(Ray ray, int depth)
         {
             if (depth > MaxDepth)
@@ -245,27 +258,54 @@ namespace CSharpPathTracer
             }
 
             Material material = hit.thingHit.Material;
-            Color emittance = material.Emittance;
 
-            // Pick a random direction from here and keep going.
-            Ray newRay;
-            newRay.Origin = hit.pointWhereObjWasHit;
+            if (material.Type == MaterialType.Diffuse)
+            {
+                Color emittance = material.Emittance;
 
-            // This is NOT a cosine-weighted distribution!
-            newRay.Direction = RandomUnitVectorInHemisphereOf(hit.normalWhereObjWasHit);
+                // Pick a random direction from here and keep going.
+                Ray newRay;
+                newRay.Origin = hit.pointWhereObjWasHit;
 
-            // Probability of the newRay
-            const float p = 1/(2*MathF.PI);
+                // This is NOT a cosine-weighted distribution!
+                newRay.Direction = RandomUnitVectorInHemisphereOf(hit.normalWhereObjWasHit);
 
-            // Compute the BRDF for this ray (assuming Lambertian reflection)
-            float cos_theta = Vector3.Dot(newRay.Direction, hit.normalWhereObjWasHit);
-            Color BRDF = material.Reflectance / MathF.PI;
+                // Probability of the newRay
+                const float p = 1/(2*MathF.PI);
 
-            // Recursively trace reflected light sources.
-            Color incoming = TracePath(newRay, depth + 1);
+                // Compute the BRDF for this ray (assuming Lambertian reflection)
+                float cos_theta = Vector3.Dot(newRay.Direction, hit.normalWhereObjWasHit);
+                Color BRDF = material.Reflectance / MathF.PI;
 
-            // Apply the Rendering Equation here.
-            return emittance + (BRDF * incoming * cos_theta / p);
+                // Recursively trace reflected light sources.
+                Color incoming = TracePath(newRay, depth + 1);
+
+                // Apply the Rendering Equation here.
+                return emittance + (BRDF * incoming * cos_theta / p);
+            }
+            else if (material.Type == MaterialType.Mirror)
+            {
+                Color emittance = material.Emittance;
+
+                // 计算反射光方向
+                // 从碰撞点处依照反射定律，发射新的射线
+                Ray newRay;
+                newRay.Origin = hit.pointWhereObjWasHit;
+                // r = i−2(i*n)n
+                newRay.Direction = ray.Direction - 2 * Vector3.Dot(ray.Direction, hit.normalWhereObjWasHit) * hit.normalWhereObjWasHit;
+
+                // 计算反射光颜色
+                // 即相同的颜色
+                Color BRDF = material.Reflectance;
+
+                // 递归地追踪反射光的来源
+                Color incoming = TracePath(newRay, depth + 1);
+
+                // 在此应用渲染方程，得到出射光的最终颜色（强度）
+                return emittance + BRDF * incoming;
+            }
+
+            throw new ArgumentOutOfRangeException();
         }
 
         private static bool FindNearestObject(Ray ray, out Hit hit)
@@ -314,30 +354,13 @@ namespace CSharpPathTracer
                 pixel /= numSamples;
                 image[index] = pixel;
             });
-#if false
-            for (var index = 0; index < width* height; index++)
-            {
-                var x = index % width;
-                var y = index / width;
-                Debug.Assert(index == y * width + x);
-
-                var pixel = image[index];
-                Ray r = Camera.generateRay(x, y, width, height, fov);
-                for (var i = 0; i < numSamples; i++)
-                {
-                    pixel += TracePath(r, 0);
-                }
-                pixel /= numSamples;
-                image[index] = pixel;
-            }
-#endif
         }
 
         public static void Main(string[] args)
         {
             const int w = 400, h = 300;
             var finalImage = new Color[w * h];
-            var numSamples = 10;
+            var numSamples = 4096;
 
             var watch = Stopwatch.StartNew();
             Render(finalImage, w, h, numSamples);
