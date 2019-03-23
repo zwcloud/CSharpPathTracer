@@ -109,6 +109,7 @@ namespace CSharpPathTracer
         {
             Diffuse,
             Mirror,
+            Glass,
         }
 
         private class Material
@@ -148,7 +149,8 @@ namespace CSharpPathTracer
             }
             var dIA = MathF.Sqrt(r * r - dCA * dCA);
             var dPA = PA.Length();
-            var dPI = dPA - dIA;
+            var dPC = PC.Length();
+            var dPI = (dPC-r>0.001) ? (dPA - dIA) : (dPA + dIA);
             k = dPI;
             I = P + Vector3.Normalize(d) * dPI;
             var CI = I - C;
@@ -234,9 +236,10 @@ namespace CSharpPathTracer
             new Sphere("Sphere1", 500, new Vector3(-769,55,-94),  new Material{Emittance = Color.black, Reflectance = new Color(0.25f,0.25f,0.75f), Type = MaterialType.Diffuse}),
             new Sphere("Sphere2", 500, new Vector3(720,16, -58),  new Material{Emittance = Color.black, Reflectance = new Color(0.75f,0.75f,0.75f), Type = MaterialType.Diffuse}),
             new Sphere("MirrorBall",  50,  new Vector3(15,16.5f,-91), new Material{Emittance = Color.black, Reflectance = new Color(1,1,1), Type = MaterialType.Mirror}),
-            new Sphere("LightBall", 50,  new Vector3(-148,52,-60),  new Material{Emittance = new Color(12,12,12), Reflectance = Color.black, Type = MaterialType.Diffuse}),
+            new Sphere("GlassBall", 100,  new Vector3(-80,-197,-317),  new Material{Emittance = Color.black, Reflectance = new Color(1,1,1), Type = MaterialType.Glass}),
+            new Sphere("LightBall", 50,  new Vector3(-148,52,-60),  new Material{Emittance = new Color(1,1,1)*12, Reflectance = Color.black, Type = MaterialType.Diffuse}),
 
-            new Sphere("Front", 5000, new Vector3(368,16.5f,-5403), new Material{Emittance = Color.black, Reflectance = new Color(0.75f,0.75f,0.75f), Type = MaterialType.Diffuse}),
+            new Sphere("Front", 5000, new Vector3(368,16.5f,-5403), new Material{Emittance = Color.black, Reflectance = new Color(0,0.75f,0), Type = MaterialType.Diffuse}),
             new Sphere("Back", 5000, new Vector3(15,16.5f,5073), new Material{Emittance = Color.black, Reflectance = Color.black, Type = MaterialType.Diffuse}),
             new Sphere("Top", 5000, new Vector3(15,5326,91), new Material{Emittance = Color.black, Reflectance = new Color(0.75f,0.75f,0.75f), Type = MaterialType.Diffuse}),
             new Sphere("Bottom", 5000, new Vector3(15,-5261,91), new Material{Emittance = Color.black, Reflectance = new Color(0.75f,0.75f,0.75f), Type = MaterialType.Diffuse}),
@@ -244,7 +247,7 @@ namespace CSharpPathTracer
             new Sphere("Right", 5000, new Vector3(5487,16.5f,-1256), new Material{Emittance = Color.black, Reflectance = new Color(0.25f,0.25f,0.75f), Type = MaterialType.Diffuse}),
         };
 
-        private const int MaxDepth = 5;
+        private const int MaxDepth = 10;
         private static Color TracePath(Ray ray, int depth)
         {
             if (depth > MaxDepth)
@@ -256,6 +259,12 @@ namespace CSharpPathTracer
             {
                 return Color.black;// Nothing was hit.
             }
+
+            Debug.Assert(
+                Math.Abs(hit.pointWhereObjWasHit.X - ray.Origin.X) > 0.0001f
+                || Math.Abs(hit.pointWhereObjWasHit.Y - ray.Origin.Y) > 0.0001f
+                || Math.Abs(hit.pointWhereObjWasHit.Z - ray.Origin.Z) > 0.0001f
+                );
 
             Material material = hit.thingHit.Material;
 
@@ -292,7 +301,7 @@ namespace CSharpPathTracer
                 Ray newRay;
                 newRay.Origin = hit.pointWhereObjWasHit;
                 // r = i−2(i*n)n
-                newRay.Direction = ray.Direction - 2 * Vector3.Dot(ray.Direction, hit.normalWhereObjWasHit) * hit.normalWhereObjWasHit;
+                newRay.Direction = Vector3.Normalize(ray.Direction - 2 * Vector3.Dot(ray.Direction, hit.normalWhereObjWasHit) * hit.normalWhereObjWasHit);
 
                 // 计算反射光颜色
                 // 即相同的颜色
@@ -303,6 +312,71 @@ namespace CSharpPathTracer
 
                 // 在此应用渲染方程，得到出射光的最终颜色（强度）
                 return emittance + BRDF * incoming;
+            }
+            else if (material.Type == MaterialType.Glass)
+            {
+                Color emittance = material.Emittance;
+
+                // 已知
+                // 碰撞点位置`ray.pointWhereObjWasHit`
+                // 碰撞点处的表面法线`ray.normalWhereObjWasHit`
+                // 空气的折射率1，玻璃的折射率1.5
+                const float n_air = 1;
+                const float n_glass = 1.5f;
+
+                // 判断是从空气入射玻璃还是从玻璃入射空气
+                bool intoGlass = Vector3.Dot(ray.Direction, hit.normalWhereObjWasHit) < 0;
+                // 计算时的法线方向要根据入射方是否是玻璃球判断是否需要取反
+                Vector3 n = intoGlass ? hit.normalWhereObjWasHit : -hit.normalWhereObjWasHit;
+                Vector3 d = ray.Direction;
+
+                // 计算反射光方向
+                // 从碰撞点处依照反射定律，发射新的反射射线
+                Ray reflectionRay;
+                reflectionRay.Origin = hit.pointWhereObjWasHit;
+                // r = i−2(i*n)n
+                reflectionRay.Direction = Vector3.Normalize(d - 2*Vector3.Dot(d, n)*n);
+
+                float n1 = intoGlass ? n_air : n_glass;//射入方的折射率
+                float n2 = intoGlass ? n_glass : n_air;//射出方的折射率
+
+                if(!intoGlass)
+                {
+                    // 判断是否发生全内反射
+                    float a = Vector3.Dot(n, d);
+	                float b = n2/n1;
+                    bool totalInternalRefelctionHappened = 1 > a*a + b*b;
+	                if(totalInternalRefelctionHappened)
+	                {
+		                // 递归地追踪反射光的来源
+		                Color incoming = TracePath(reflectionRay, depth + 1);
+		                return emittance + material.Reflectance * incoming;
+	                }
+                }
+
+                // 计算反射光、折射光强度//√
+                float R0 = ((n1-n2)/(n1+n2))*((n1-n2)/(n1+n2));//垂直入射时的反射光比例
+                float cosineTheta1 = Vector3.Dot(n, -d);
+                float R = R0+(1-R0)*MathF.Pow(1-cosineTheta1, 5);//反射光比例，依据菲涅尔方程的估计公式
+                float T = 1-R;//折射光比例
+
+                if (!(0<=R && R<=1))
+                {
+                    Debugger.Break();
+                }
+
+                // 计算折射光方向//√
+                Ray refractionRay;
+                refractionRay.Origin = hit.pointWhereObjWasHit;
+                float nd = Vector3.Dot(n, d);
+                refractionRay.Direction = Vector3.Normalize(n1*(d-nd*n)/n2 - n*MathF.Sqrt(1-n1*n1*(1-nd*nd)/(n2*n2)));
+
+                // 递归地追踪反射光、折射光的来源
+                Color reflection = TracePath(reflectionRay, depth + 1) * R;
+                Color refraction = TracePath(refractionRay, depth + 1) * T;
+
+                // 应用渲染方程，得到光的最终颜色（强度）
+                return emittance + material.Reflectance * (reflection + refraction);
             }
 
             throw new ArgumentOutOfRangeException();
